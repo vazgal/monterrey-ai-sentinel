@@ -7,4 +7,5 @@ streamlit-folium
 tensorflow
 joblib
 scikit-learn
+fpdf
 altair
