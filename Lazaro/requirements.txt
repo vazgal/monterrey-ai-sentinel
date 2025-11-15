@@ -1,0 +1,10 @@
+streamlit
+pandas
+numpy
+requests
+folium
+streamlit-folium
+tensorflow
+joblib
+scikit-learn
+altair
