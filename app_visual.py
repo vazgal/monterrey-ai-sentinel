@@ -198,9 +198,9 @@ try:
         api_key = st.secrets["OPENWEATHER_KEY"]
     else:
         # CLAVE NUEVA ACTUALIZADA
-        api_key = "7bb94235f544dd5e37b0262258a9cdbc"
+        api_key = "d08b1d9791108c7814291d14d5bbd01f"
 except:
-    api_key = "7bb94235f544dd5e37b0262258a9cdbc"
+    api_key = "d08b1d9791108c7814291d14d5bbd01f"
 
 with st.sidebar:
     st.markdown("## 💧 AI SENTINEL")
@@ -330,3 +330,4 @@ with tab3:
             umbral = alt.Chart(pd.DataFrame({'u': [35.0]})).mark_rule(color="#FF3D00", strokeDash=[5,5]).encode(y='u:Q')
             st.altair_chart((linea + umbral).properties(height=400).interactive(), use_container_width=True)
             st.info("Nota: La simulación asume ciclos de tráfico (CO) sinusoidales para mayor realismo.")
+
