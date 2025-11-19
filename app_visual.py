@@ -14,7 +14,7 @@ import altair as alt
 import warnings
 from fpdf import FPDF
 
-# --- 0. CONFIGURACIÓN ANTI-ERRORES ---
+# --- 0. CONFIGURACIÓN ---
 os.environ['TF_CPP_MIN_LOG_LEVEL'] = '2' 
 warnings.filterwarnings('ignore')
 
@@ -23,7 +23,6 @@ st.set_page_config(page_title="Monterrey AI Sentinel", page_icon="🛡️", layo
 # --- 1. ESTÉTICA "LIQUID GLASS" ---
 st.markdown("""
     <style>
-    /* Animación de Fondo */
     .stApp {
         background: linear-gradient(-45deg, #0f0c29, #302b63, #24243e, #141e30);
         background-size: 400% 400%;
@@ -34,8 +33,6 @@ st.markdown("""
         50% {background-position: 100% 50%;}
         100% {background-position: 0% 50%;}
     }
-    
-    /* Tarjetas de Vidrio */
     .css-card {
         background: rgba(255, 255, 255, 0.05);
         border-radius: 20px;
@@ -52,7 +49,6 @@ st.markdown("""
     .big-metric { font-size: 38px; font-weight: 800; color: #FFF; text-shadow: 0 0 10px rgba(255,255,255,0.3); }
     .metric-label { font-size: 12px; text-transform: uppercase; color: rgba(255,255,255,0.7); letter-spacing: 1px; }
     
-    /* Ajustes de Mapa y Tablas */
     iframe { border-radius: 20px; border: 1px solid rgba(255,255,255,0.1); }
     [data-testid="stExpander"] { background-color: rgba(0,0,0,0.2); border-radius: 10px; }
     </style>
@@ -73,40 +69,27 @@ LOCATIONS = {
     "Cadereyta": [25.5879, -99.9976]
 }
 
-# --- 3. LÓGICA DE NEGOCIO (UMBRALES AJUSTADOS) ---
+# --- 3. LÓGICA DE NEGOCIO ---
 def get_status_color(temp, aqi):
-    # Umbrales más estrictos para AQI
-    if aqi >= 4: return "#D500F9", 4000  # Púrpura (Malo/Peligroso)
-    if aqi == 3: return "#FF1744", 3500  # Rojo (Moderado alto)
-    if aqi == 2: return "#FF9100", 2500  # Naranja (Aceptable/Precaución)
-    
-    # Temperatura
-    if temp >= 38: return "#FF3D00", 3000 # Rojo Fuego
-    if temp < 12:  return "#2979FF", 2500 # Azul Frío
-    
-    return "#00E676", 1500 # Verde (Solo AQI 1 es verde)
+    if aqi >= 4: return "#D500F9", 4000  
+    if aqi == 3: return "#FF1744", 3500  
+    if aqi == 2: return "#FF9100", 2500  
+    if temp >= 38: return "#FF3D00", 3000 
+    if temp < 12:  return "#2979FF", 2500 
+    return "#00E676", 1500 
 
 def get_protocols(temp, aqi):
     protocols = []
     status = "normal"
-    
-    # Temperatura
     if temp >= 38:
-        protocols.append("🔥 GOLPE DE CALOR: Hidratación obligatoria.")
-        status = "danger"
+        protocols.append("🔥 GOLPE DE CALOR: Hidratación obligatoria."); status = "danger"
     elif temp < 12:
-        protocols.append("❄️ BAJAS TEMPERATURAS: Ropa térmica.")
-        status = "info"
-        
-    # AQI (Ajustado: Nivel 3 ya es peligro)
+        protocols.append("❄️ BAJAS TEMPERATURAS: Ropa térmica."); status = "info"
     if aqi >= 3:
-        protocols.append("☣️ AIRE TÓXICO/MALO: Cubrebocas N95.")
-        protocols.append("⚠️ ALERTA AMBIENTAL ACTIVA")
-        status = "danger"
+        protocols.append("☣️ AIRE TÓXICO/MALO: Cubrebocas N95."); protocols.append("⚠️ ALERTA AMBIENTAL ACTIVA"); status = "danger"
     elif aqi == 2:
-        protocols.append("😷 AIRE REGULAR: Precaución grupos sensibles.")
+        protocols.append("😷 AIRE REGULAR: Precaución grupos sensibles."); 
         if status != "danger": status = "warning"
-        
     if not protocols: protocols.append("✅ OPERACIÓN NORMAL")
     return protocols, status
 
@@ -168,7 +151,7 @@ def load_historical_csv():
         except: pass
     return pd.DataFrame()
 
-# --- 6. FUNCIONES DE PRONÓSTICO OPTIMIZADAS (CACHÉ) ---
+# --- 6. FUNCIONES CACHÉ PRONÓSTICO ---
 def _get_initial_sequence_uncached(scaler):
     LOOK_BACK = 24; FEATURES = ['temperatura', 'pm2_5', 'co', 'no2', 'o3']
     df = load_historical_csv()
@@ -208,15 +191,21 @@ def generate_cached_forecast(n_steps=48):
     return pd.DataFrame({'timestamp': future_timestamps, 'temperatura': future_temps})
 
 # --- 7. INTERFAZ PRINCIPAL ---
+
+# ¡AQUÍ ESTÁ TU NUEVA CLAVE!
 try:
-    if "OPENWEATHER_KEY" in st.secrets: api_key = st.secrets["OPENWEATHER_KEY"]
-    else: api_key = "7bb94235f544dd5e37b0262258a9cdbc"
-except: api_key = "7bb94235f544dd5e37b0262258a9cdbc"
+    if "OPENWEATHER_KEY" in st.secrets:
+        api_key = st.secrets["OPENWEATHER_KEY"]
+    else:
+        # CLAVE NUEVA ACTUALIZADA
+        api_key = "7bb94235f544dd5e37b0262258a9cdbc"
+except:
+    api_key = "7bb94235f544dd5e37b0262258a9cdbc"
 
 with st.sidebar:
     st.markdown("## 💧 AI SENTINEL")
-    st.markdown("### `v8.0 // FINAL`") 
-    selected_city = st.selectbox("📍 UBICACIÓN OBJETIVO", list(LOCATIONS.keys()), key="city_final_v8")
+    st.markdown("### `v8.1 // NEW API`") 
+    selected_city = st.selectbox("📍 UBICACIÓN OBJETIVO", list(LOCATIONS.keys()), key="city_new_api")
     st.divider()
     layer_type = st.radio("Modo de Mapa:", ["Táctico (Polígonos)", "Científico (Heatmap)"])
     st.divider()
@@ -243,7 +232,7 @@ if temp:
 
 tab1, tab2, tab3 = st.tabs(["📡 MONITOREO TÁCTICO", "📈 ANALÍTICA", "🔮 PRONÓSTICO 48H"])
 
-# --- PESTAÑA 1: DASHBOARD ---
+# --- PESTAÑA 1 ---
 with tab1:
     if model and temp:
         data_packet = {'temp': temp, 'comps': comps}
@@ -251,7 +240,6 @@ with tab1:
         error = abs(temp - pred)
         k1, k2, k3, k4 = st.columns(4)
         temp_col = "#FF3D00" if temp >= 35 else "#FFF"
-        # Colores AQI ajustados (2=Naranja, 3=Rojo, 4+=Púrpura)
         aqi_col = "#D500F9" if aqi >= 4 else ("#FF1744" if aqi == 3 else ("#FF9100" if aqi == 2 else "#00E676"))
         aqi_lbl = ["BUENO", "REGULAR", "MALO (ALERTA)", "MUY MALO", "PELIGROSO"][aqi-1] if 1<=aqi<=5 else "N/A"
 
@@ -260,18 +248,17 @@ with tab1:
         with k3: st.markdown(f"""<div class="css-card"><div class="metric-label">DESVIACIÓN</div><div class="big-metric">{error:.1f}°C</div></div>""", unsafe_allow_html=True)
         with k4: st.markdown(f"""<div class="css-card"><div class="metric-label">CALIDAD AIRE</div><div class="big-metric" style="color:{aqi_col}">{aqi_lbl}</div></div>""", unsafe_allow_html=True)
 
-        # --- MATRIX VIEW "LITE" (OPTIMIZADA) ---
+        # MATRIX VIEW LITE
         with st.expander("📋 Ver Resumen de Todas las Plantas (Matrix View)", expanded=False):
             matrix_data = []
             for c_name, c_coords in LOCATIONS.items():
                 if c_name == selected_city:
-                    # Solo mostramos datos reales de la ciudad seleccionada para no quemar la API
                     icon = "🔴" if status=="danger" else ("🟡" if status=="warning" else "🟢")
                     matrix_data.append({"Ubicación": c_name, "Temp": f"{temp}°C", "AQI": f"Nivel {aqi}", "Estado": icon})
                 else:
                     matrix_data.append({"Ubicación": c_name, "Temp": "---", "AQI": "---", "Estado": "⚪"})
             st.dataframe(pd.DataFrame(matrix_data), use_container_width=True)
-            st.caption("Nota: Datos en tiempo real limitados a la ubicación activa para optimización.")
+            st.caption("Nota: Datos limitados para optimización de API.")
 
         st.markdown("---")
         c_pdf1, c_pdf2 = st.columns([3, 1])
@@ -285,7 +272,11 @@ with tab1:
         m = folium.Map(location=[25.69, -100.32], zoom_start=11, tiles="CartoDB dark_matter")
         heat_data = []
         for city, coords in LOCATIONS.items():
-            ct, _, caqi, _ = get_live_data(coords[0], coords[1], api_key)
+            if city == selected_city: # Solo pedimos datos de la ciudad activa
+                ct, _, caqi, _ = temp, hum, aqi, comps
+            else:
+                ct, caqi = None, None # No quemamos API para las otras
+            
             if ct:
                 intensity = caqi * 0.2
                 heat_data.append([coords[0], coords[1], intensity])
@@ -295,17 +286,20 @@ with tab1:
                     poly = [[coords[0]-offset, coords[1]-offset], [coords[0]+offset, coords[1]-offset], [coords[0]+offset, coords[1]+offset], [coords[0]-offset, coords[1]+offset]]
                     folium.Polygon(locations=poly, color=hex_color, fill=True, fill_color=hex_color, fill_opacity=0.3, tooltip=f"<b>{city}</b><br>Temp: {ct}°C").add_to(m)
                     folium.Marker(location=coords, icon=folium.DivIcon(html=f'<div style="color:#EEE;font-size:9pt;text-shadow:0 0 4px #000;font-weight:bold">{city}</div>')).add_to(m)
-        if layer_type == "Científico (Heatmap)": HeatMap(heat_data, radius=25, blur=15, gradient={0.2:'blue',0.4:'lime',0.6:'orange',1:'red'}).add_to(m)
+            else:
+                 # Marcador gris para ciudades sin datos cargados
+                 folium.Marker(location=coords, icon=folium.DivIcon(html=f'<div style="color:#555;font-size:9pt;">{city}</div>')).add_to(m)
+
+        if layer_type == "Científico (Heatmap)" and heat_data: HeatMap(heat_data, radius=25, blur=15, gradient={0.2:'blue',0.4:'lime',0.6:'orange',1:'red'}).add_to(m)
         st_folium(m, width="100%", height=500)
     
-    # --- MANEJO DE ERRORES DE API ---
     else:
         st.error("⚠️ Error de Conexión con Sensores")
-        st.info("El sistema no pudo recuperar datos en tiempo real. Posibles causas: Límite de API excedido o falla de red.")
+        st.info("El sistema no pudo recuperar datos en tiempo real.")
         if not model: st.warning("Diagnóstico: Modelo de IA no cargado.")
-        if not temp: st.warning("Diagnóstico: API OpenWeather no responde (Rate Limit).")
+        if not temp: st.warning("Diagnóstico: API OpenWeather no responde (Nueva clave configurada, espera 1 min).")
 
-# --- PESTAÑA 2: ANALÍTICA ---
+# --- PESTAÑA 2 ---
 with tab2:
     st.markdown("### 📊 HISTÓRICO MULTIVARIABLE")
     df = load_historical_csv()
@@ -323,7 +317,7 @@ with tab2:
             st.altair_chart(chart, use_container_width=True)
     else: st.info("Esperando datos del recolector...")
 
-# --- PESTAÑA 3: PRONÓSTICO ---
+# --- PESTAÑA 3 ---
 with tab3:
     st.markdown("### 🔮 Pronóstico Extendido (48 Horas)")
     st.caption(f"Simulación avanzada para: **{selected_city}**")
