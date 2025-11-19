@@ -70,28 +70,36 @@ def get_nom015_status(heat_index):
         return "PELIGRO EXTREMO", "0% Trabajo / 100% Descanso", "SUSPENSION DE ACTIVIDADES. Peligro inminente de golpe de calor."
 
 def get_status_color(temp, aqi):
-    if aqi >= 5: return "#D500F9", 4000  
-    if aqi == 4: return "#FF1744", 3500  
+    # --- CAMBIO DE UMBRALES AQI ---
+    if aqi >= 4: return "#D500F9", 4000  # Púrpura (Ahora 4 y 5 son extremos)
+    if aqi == 3: return "#FF1744", 3500  # Rojo (El 3 ahora es peligro)
+    if aqi == 2: return "#FF9100", 2500  # Naranja (El 2 ahora es alerta)
+    
+    # Temperatura (Se queda igual o la ajustas también)
     if temp >= 38: return "#FF3D00", 3000 
     if temp < 12:  return "#2979FF", 2500 
-    if aqi == 3: return "#FF9100", 2500  
-    return "#00E676", 1500              
+    
+    return "#00E676", 1500 # Verde (Solo el 1 queda verde)
 
 def get_protocols(temp, aqi):
     protocols = []
     status = "normal"
+    
+    # Temperatura... (sin cambios)
     if temp >= 38:
-        protocols.append("🔥 GOLPE DE CALOR: Hidratación obligatoria.")
-        status = "danger"
+        protocols.append("🔥 GOLPE DE CALOR: Hidratación obligatoria."); status = "danger"
     elif temp < 12:
-        protocols.append("❄️ BAJAS TEMPERATURAS: Ropa térmica.")
-        status = "info"
-    if aqi >= 4:
+        protocols.append("❄️ BAJAS TEMPERATURAS: Ropa térmica."); status = "info"
+        
+    # --- CAMBIO DE UMBRALES AQI ---
+    if aqi >= 3: # AHORA EL 3 DISPARA LA ALERTA MÁXIMA
         protocols.append("☣️ AIRE TÓXICO: Cubrebocas N95.")
+        protocols.append("⚠️ NIVEL 3 DETECTADO: Alta sensibilidad.")
         status = "danger"
-    elif aqi == 3:
-        protocols.append("😷 AIRE MODERADO: Reducir ejercicio.")
+    elif aqi == 2: # AHORA EL 2 DISPARA LA PRECAUCIÓN
+        protocols.append("😷 AIRE REGULAR: Grupos sensibles precaución.")
         if status != "danger": status = "warning"
+        
     if not protocols: protocols.append("✅ OPERACIÓN NORMAL")
     return protocols, status
 
@@ -360,5 +368,6 @@ with tab3:
             umbral = alt.Chart(pd.DataFrame({'u': [35.0]})).mark_rule(color="#FF3D00", strokeDash=[5,5]).encode(y='u:Q')
             st.altair_chart((linea + umbral).properties(height=400).interactive(), use_container_width=True)
             st.info("Nota: La simulación asume ciclos de tráfico (CO) sinusoidales para mayor realismo.")
+
 
 
