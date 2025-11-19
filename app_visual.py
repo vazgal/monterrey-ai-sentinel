@@ -234,7 +234,7 @@ with st.sidebar:
     selected_city = st.selectbox("📍 UBICACIÓN OBJETIVO", list(LOCATIONS.keys()), key="city_sel_fc")
     st.divider()
     st.subheader("🗺️ Capas de Visualización")
-    layer_type = st.radio("Modo de Mapa:", ["Táctico (Círculos)", "Científico (Heatmap)"])
+    layer_type = st.radio("Modo de Mapa:", ["Táctico (Polígonos)", "Científico (Heatmap)"])
     st.divider()
     protocol_container = st.empty()
     st.divider()
@@ -352,3 +352,4 @@ with tab3:
             
             st.altair_chart(final_chart, use_container_width=True)
             st.info("Esta predicción es generada por la IA autoregresiva. Asume que los niveles de contaminación se mantendrán estables.")
+
