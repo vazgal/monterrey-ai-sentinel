@@ -148,16 +148,15 @@ def load_historical_csv():
         except: pass
     return pd.DataFrame()
 
-# --- ¡NUEVAS FUNCIONES DE PRONÓSTICO! ---
-@st.cache_data(ttl=3600) # Guardar en caché por 1 hora
-def get_initial_sequence(scaler):
-    """Carga los últimos 24 registros del CSV para iniciar el pronóstico."""
+# --- ¡NUEVAS FUNCIONES DE PRONÓSTICO (CORREGIDAS)! ---
+
+def _get_initial_sequence_uncached(scaler):
+    """(Función interna) Carga los últimos 24 registros del CSV."""
     LOOK_BACK = 24
     FEATURES = ['temperatura', 'pm2_5', 'co', 'no2', 'o3']
     
     df = load_historical_csv()
     if not df.empty and len(df) >= LOOK_BACK:
-        # Tomar las últimas 24 filas con datos válidos
         last_data = df.dropna(subset=FEATURES).tail(LOOK_BACK)
         if len(last_data) == LOOK_BACK:
             print("Iniciando pronóstico con datos reales del CSV.")
@@ -173,41 +172,54 @@ def get_initial_sequence(scaler):
     input_scaled = scaler.transform(input_sequence)
     return input_scaled.reshape(1, LOOK_BACK, len(FEATURES))
 
-@st.cache_data(ttl=3600) # Guardar en caché el pronóstico por 1 hora
-def predict_future_sequence(_model, _scaler, initial_sequence, n_steps=48):
-    """
-    Predice en bucle (autoregresivo) las siguientes n_steps horas.
-    """
+def _predict_future_sequence_uncached(model, scaler, initial_sequence, n_steps=48):
+    """(Función interna) Predice en bucle las siguientes n_steps horas."""
     print(f"Generando pronóstico de {n_steps} pasos...")
     future_predictions_scaled = []
     current_batch = initial_sequence.copy() # (1, 24, 5)
 
     for i in range(n_steps):
-        # 1. Predecir el siguiente paso (t+1)
-        next_pred_scaled = _model.predict(current_batch)[0] # Shape (1,)
-        
-        # 2. Guardar la predicción
+        next_pred_scaled = model.predict(current_batch)[0] 
         future_predictions_scaled.append(next_pred_scaled[0])
         
-        # 3. Preparar el siguiente input (El "truco")
-        # Asumimos que los contaminantes (columnas 1 a 4) se quedan igual que el último dato real
-        last_contaminants = current_batch[0, -1, 1:] # Shape (4,)
-        
-        # Creamos el nuevo vector [pred_temp, pm2.5, co, no2, o3]
-        new_step_features = np.insert(last_contaminants, 0, next_pred_scaled[0]) # Shape (5,)
-        
-        # Añadimos dimensiones (1, 1, 5)
+        last_contaminants = current_batch[0, -1, 1:] 
+        new_step_features = np.insert(last_contaminants, 0, next_pred_scaled[0])
         new_step_reshaped = new_step_features.reshape(1, 1, 5)
-        
-        # Quitamos el paso más antiguo y añadimos el nuevo
         current_batch = np.append(current_batch[:, 1:, :], new_step_reshaped, axis=1)
 
-    # 4. Des-escalar todas las predicciones juntas
     dummy_array = np.zeros((n_steps, 5))
-    dummy_array[:, 0] = future_predictions_scaled # Ponemos las predicciones en la columna 'temperatura'
-    final_predictions = _scaler.inverse_transform(dummy_array)[:, 0] # Extraemos solo la columna 'temperatura'
+    dummy_array[:, 0] = future_predictions_scaled
+    final_predictions = scaler.inverse_transform(dummy_array)[:, 0] 
     
     return final_predictions
+
+@st.cache_data(ttl=3600) # ¡LA FUNCIÓN DE CACHÉ ÚNICA!
+def generate_cached_forecast(n_steps=48):
+    """
+    Función "Contenedora" que carga recursos y genera el pronóstico.
+    Streamlit SÍ puede cachear esta, porque no toma argumentos complejos.
+    """
+    # 1. Cargar recursos (rápido, ya están cacheados por @st.cache_resource)
+    model, scaler = load_ai_resources()
+    if model is None or scaler is None:
+        st.error("Modelos de IA no encontrados. El pronóstico fallará.")
+        return None
+
+    # 2. Obtener secuencia inicial (rápido)
+    initial_seq = _get_initial_sequence_uncached(scaler)
+    
+    # 3. Generar pronóstico (lento, pero se guardará en caché)
+    future_temps = _predict_future_sequence_uncached(model, scaler, initial_seq, n_steps)
+    
+    # 4. Preparar datos para el gráfico
+    now = datetime.now()
+    future_timestamps = [now + timedelta(hours=i) for i in range(1, n_steps + 1)]
+    
+    forecast_df = pd.DataFrame({
+        'timestamp': future_timestamps,
+        'temperatura': future_temps
+    })
+    return forecast_df
 # ----------------------------------------
 
 # --- 5. INTERFAZ ---
@@ -307,51 +319,36 @@ with tab2:
 # --- ¡NUEVA PESTAÑA DE PRONÓSTICO! ---
 with tab3:
     st.markdown("### 🔮 Pronóstico Extendido de Temperatura (Próximas 48 Horas)")
-    st.caption(f"Generando pronóstico avanzado para: **{selected_city}**")
+    st.caption(f"Generando simulación avanzada para: **{selected_city}**")
 
-    if model and scaler:
-        with st.spinner("Ejecutando simulación de IA... (Esto puede tardar un momento)"):
-            # 1. Obtener los últimos 24 registros para iniciar la predicción
-            initial_seq = get_initial_sequence(scaler)
-            
-            # 2. Generar el pronóstico
-            future_temps = predict_future_sequence(model, scaler, initial_seq, n_steps=48)
-            
-            # 3. Preparar datos para el gráfico
-            now = datetime.now()
-            future_timestamps = [now + timedelta(hours=i) for i in range(1, 49)]
-            
-            forecast_df = pd.DataFrame({
-                'timestamp': future_timestamps,
-                'temperatura': future_temps
-            })
-            
-            # 4. Crear el gráfico
+    # Usamos un spinner mientras la función cacheada (lenta) se ejecuta por primera vez
+    with st.spinner("Ejecutando simulación de IA... (Esto puede tardar un momento)"):
+        
+        # --- LLAMADA A LA FUNCIÓN CORREGIDA ---
+        # Esta función ya devuelve el DataFrame listo para graficar
+        forecast_df = generate_cached_forecast(n_steps=48)
+        
+        if forecast_df is None:
+            st.error("No se pudo generar el pronóstico.")
+        else:
             st.subheader("Simulación de Temperatura a 48 Horas")
             
-            # Línea de umbral de calor (ejemplo)
-            umbral_calor = 35.0
+            umbral_calor = 32.0 # Línea de umbral de calor (ejemplo)
             
             base = alt.Chart(forecast_df).encode(
                 x=alt.X('timestamp:T', title="Fecha y Hora"),
                 tooltip=['timestamp', 'temperatura']
             )
             
-            # Línea de predicción
             linea_prediccion = base.mark_line(color="#00E5FF", point=True).encode(
                 y=alt.Y('temperatura:Q', title="Temperatura (°C)", scale=alt.Scale(zero=False))
             )
             
-            # Línea de umbral de calor
             linea_umbral = alt.Chart(pd.DataFrame({'umbral': [umbral_calor]})).mark_rule(color="#FF3D00", strokeDash=[5,5]).encode(
                 y='umbral:Q'
             )
             
-            # Combinar gráficos
             final_chart = (linea_prediccion + linea_umbral).properties(height=400).interactive()
             
             st.altair_chart(final_chart, use_container_width=True)
-            
             st.info("Esta predicción es generada por la IA autoregresiva. Asume que los niveles de contaminación se mantendrán estables.")
-    else:
-        st.error("No se pudo cargar el modelo de IA. El pronóstico no está disponible.")
