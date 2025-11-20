@@ -68,6 +68,9 @@ LOCATIONS = {
     "Juárez": [25.6493, -100.0951],
     "Santiago": [25.4317, -100.1533],
     "Cadereyta": [25.5879, -99.9976]
+    "Cemex (Planta Mty)": [25.7080, -100.2960],   # Av. Independencia, Monterrey
+    "Ternium (Guerrero)": [25.7480, -100.2930],   # Av. Munich, San Nicolás
+    "Kia (Pesquería)":    [25.7735, -99.9565],    # Blvd. Kia, Pesquería
 }
 
 # --- 3. LÓGICA DE NEGOCIO ---
@@ -387,3 +390,4 @@ with tab3:
         umbral = alt.Chart(pd.DataFrame({'u': [35.0]})).mark_rule(color="#FF3D00", strokeDash=[5,5]).encode(y='u:Q')
         st.altair_chart((linea + umbral).properties(height=400).interactive(), use_container_width=True)
         st.info("Nota: La simulación asume ciclos de tráfico (CO) sinusoidales para mayor realismo.")
+
