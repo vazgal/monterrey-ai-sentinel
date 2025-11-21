@@ -240,7 +240,6 @@ except: api_key = "7bb94235f544dd5e37b0262258a9cdbc"
 
 with st.sidebar:
     st.markdown("## 🌍 GlobalAir")
-    st.markdown("### `v10.0 // SATELLITE`") 
     selected_city = st.selectbox("📍 UBICACIÓN OBJETIVO", list(LOCATIONS.keys()), key="city_sel_final")
     st.divider()
     # NUEVO CONTROL DE CAPAS CON SATÉLITE
@@ -386,3 +385,4 @@ with tab3:
         umbral = alt.Chart(pd.DataFrame({'u': [35.0]})).mark_rule(color="#FF3D00", strokeDash=[5,5]).encode(y='u:Q')
         st.altair_chart((linea + umbral).properties(height=400).interactive(), use_container_width=True)
         st.info("Nota: La simulación asume ciclos de tráfico (CO) sinusoidales para mayor realismo.")
+
