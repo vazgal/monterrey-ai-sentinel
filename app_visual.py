@@ -6,7 +6,7 @@ from datetime import datetime, timedelta
 import time
 import folium
 from streamlit_folium import st_folium
-from folium.plugins import HeatMap
+from folium.plugins import HeatMap, Fullscreen
 from tensorflow.keras.models import load_model
 import joblib
 import os
@@ -18,10 +18,9 @@ from fpdf import FPDF
 os.environ['TF_CPP_MIN_LOG_LEVEL'] = '2' 
 warnings.filterwarnings('ignore')
 
-# CAMBIO DE MARCA AQUÍ
 st.set_page_config(page_title="GlobalAir", page_icon="🌍", layout="wide")
 
-# --- 1. ESTILOS (LIQUID GLASS) ---
+# --- 1. ESTILOS (LIQUID GLASS + PULSO) ---
 st.markdown("""
     <style>
     .stApp {
@@ -29,29 +28,28 @@ st.markdown("""
         background-size: 400% 400%;
         animation: gradient 15s ease infinite;
     }
-    @keyframes gradient {
-        0% {background-position: 0% 50%;}
-        50% {background-position: 100% 50%;}
-        100% {background-position: 0% 50%;}
-    }
+    @keyframes gradient { 0% {background-position: 0% 50%;} 50% {background-position: 100% 50%;} 100% {background-position: 0% 50%;} }
+    
     .css-card {
         background: rgba(255, 255, 255, 0.05);
         border-radius: 20px;
         box-shadow: 0 8px 32px 0 rgba(0, 0, 0, 0.37);
         backdrop-filter: blur(12px);
-        -webkit-backdrop-filter: blur(12px);
         border: 1px solid rgba(255, 255, 255, 0.1);
         padding: 25px;
-        transition: transform 0.2s;
     }
-    .css-card:hover { transform: translateY(-3px); }
+    
+    /* ANIMACIÓN DE PULSO PARA ALERTAS */
+    @keyframes pulse-red {
+        0% { box-shadow: 0 0 0 0 rgba(255, 82, 82, 0.7); }
+        70% { box-shadow: 0 0 0 10px rgba(255, 82, 82, 0); }
+        100% { box-shadow: 0 0 0 0 rgba(255, 82, 82, 0); }
+    }
     
     h1, h2, h3 { color: #ffffff !important; font-family: 'Helvetica Neue', sans-serif; }
-    .big-metric { font-size: 38px; font-weight: 800; color: #FFF; text-shadow: 0 0 10px rgba(255,255,255,0.3); }
-    .metric-label { font-size: 12px; text-transform: uppercase; color: rgba(255,255,255,0.7); letter-spacing: 1px; }
-    
+    .big-metric { font-size: 38px; font-weight: 800; color: #FFF; }
+    .metric-label { font-size: 12px; text-transform: uppercase; color: rgba(255,255,255,0.7); }
     iframe { border-radius: 20px; border: 1px solid rgba(255,255,255,0.1); }
-    [data-testid="stExpander"] { background-color: rgba(0,0,0,0.2); border-radius: 10px; }
     </style>
     """, unsafe_allow_html=True)
 
@@ -67,24 +65,29 @@ LOCATIONS = {
     "García": [25.8119, -100.5928],
     "Juárez": [25.6493, -100.0951],
     "Santiago": [25.4317, -100.1533],
-     "Cadereyta": [25.5879, -99.9976],
-    "Cemex (Planta Mty)": [25.7080, -100.2960],   # Av. Independencia, Monterrey
-    "Ternium (Guerrero)": [25.7480, -100.2930],   # Av. Munich, San Nicolás
-    "Kia (Pesquería)":    [25.7735, -99.9565],    # Blvd. Kia, Pesquería
+    "Cadereyta": [25.5879, -99.9976],
+    "Cemex (Planta Mty)": [25.7080, -100.2960],
+    "Ternium (Guerrero)": [25.7480, -100.2930],
+    "Kia (Pesquería)":    [25.7735, -99.9565]
 }
 
 # --- 3. LÓGICA DE NEGOCIO ---
+def deg_to_cardinal(deg):
+    """Convierte grados de viento a dirección (N, NE, E...)"""
+    dirs = ["N", "NNE", "NE", "ENE", "E", "ESE", "SE", "SSE", "S", "SSW", "SW", "WSW", "W", "WNW", "NW", "NNW"]
+    ix = int((deg + 11.25)/22.5)
+    return dirs[ix % 16]
+
 def calculate_heat_index(temp, humidity):
     hi = 0.5 * (temp + 61.0 + ((temp-68.0)*1.2) + (humidity*0.094))
     if hi > 80:
         hi = -42.379 + 2.04901523*temp + 10.14333127*humidity - .22475541*temp*humidity - .00683783*temp*temp - .05481717*humidity*humidity + .00122874*temp*temp*humidity + .00085282*temp*humidity*humidity - .00000199*temp*temp*humidity*humidity
-    heat_index_c = temp + (0.33 * humidity / 10) if temp > 26 else temp
-    return heat_index_c
+    return temp + (0.33 * humidity / 10) if temp > 26 else temp
 
 def get_nom015_status(heat_index):
     if heat_index < 28: return "RIESGO BAJO", "100% Trabajo / 0% Descanso", "Hidratacion normal."
     elif 28 <= heat_index < 30: return "PRECAUCION", "100% Trabajo (Vigilancia)", "Agua fresca disponible."
-    elif 30 <= heat_index < 32: return "RIESGO MODERADO", "75% Trabajo / 25% Descanso", "Descanso 15 min/hora en sombra."
+    elif 30 <= heat_index < 32: return "RIESGO MODERADO", "75% Trabajo / 25% Descanso", "Descanso 15 min/hora."
     elif 32 <= heat_index < 54: return "RIESGO ALTO", "50% Trabajo / 50% Descanso", "Descanso 30 min/hora."
     else: return "PELIGRO EXTREMO", "0% Trabajo / 100% Descanso", "SUSPENSION DE ACTIVIDADES."
 
@@ -107,80 +110,47 @@ def get_protocols(temp, aqi):
     if not protocols: protocols.append("✅ OPERACIÓN NORMAL")
     return protocols, status
 
-# --- 4. MOTOR DE PDF (ACTUALIZADO GLOBALAIR) ---
+# --- 4. MOTOR DE PDF ---
 class PDFReport(FPDF):
     def header(self):
         self.set_font('Arial', 'B', 14)
-        # CAMBIO DE MARCA EN CABECERA
         self.cell(0, 10, 'GlobalAir - REPORTE DE CUMPLIMIENTO AMBIENTAL', 0, 1, 'C')
         self.ln(5)
-
     def footer(self):
-        self.set_y(-15)
-        self.set_font('Arial', 'I', 8)
-        # CAMBIO DE MARCA EN PIE DE PÁGINA
+        self.set_y(-15); self.set_font('Arial', 'I', 8)
         self.cell(0, 10, f'Pagina {self.page_no()} - Generado por GlobalAir System v1.0', 0, 0, 'C')
 
-def create_pdf_download(city, temp, hum, aqi, pred, comps):
-    pdf = PDFReport()
-    pdf.add_page()
+def create_pdf_download(city, temp, hum, aqi, pred, comps, wind_s, wind_d):
+    pdf = PDFReport(); pdf.add_page(); pdf.set_font("Arial", size=12)
+    pdf.cell(0, 10, f"Fecha: {datetime.now().strftime('%Y-%m-%d %H:%M')}", ln=True)
+    pdf.cell(0, 10, f"Ubicacion: {city}", ln=True); pdf.ln(10)
     
-    # 1. DATOS GENERALES
-    pdf.set_fill_color(200, 220, 255)
-    pdf.set_font("Arial", 'B', 10)
-    pdf.cell(0, 8, f"1. DATOS GENERALES DE LA MEDICION", 1, 1, 'L', 1)
+    pdf.set_fill_color(200, 220, 255); pdf.set_font("Arial", 'B', 10)
+    pdf.cell(0, 8, "1. DATOS METEOROLOGICOS Y DISPERSION", 1, 1, 'L', 1)
     pdf.set_font("Arial", '', 10)
-    pdf.cell(100, 8, f"Ubicacion: {city}", 1)
-    pdf.cell(0, 8, f"Fecha/Hora: {datetime.now().strftime('%Y-%m-%d %H:%M')}", 1, 1)
-    pdf.ln(5)
-    
-    # 2. NOM-015
+    pdf.cell(50, 8, f"Temp: {temp} C", 1); pdf.cell(50, 8, f"Humedad: {hum}%", 1); pdf.ln()
+    pdf.cell(50, 8, f"Viento: {wind_s} m/s", 1); pdf.cell(50, 8, f"Direccion: {deg_to_cardinal(wind_d)}", 1); pdf.ln(5)
+
     heat_index = calculate_heat_index(temp, hum)
     riesgo_nom, regimen, accion = get_nom015_status(heat_index)
-    
     pdf.set_font("Arial", 'B', 10)
     pdf.set_fill_color(255, 200, 200) if heat_index > 30 else pdf.set_fill_color(220, 255, 220)
-    pdf.cell(0, 8, f"2. ANALISIS DE ESTRES TERMICO (NOM-015-STPS)", 1, 1, 'L', 1)
-    
+    pdf.cell(0, 8, f"2. ANALISIS NOM-015-STPS (CALOR)", 1, 1, 'L', 1)
     pdf.set_font("Arial", '', 10)
-    pdf.cell(50, 8, "Temp. Bulbo Seco (Aire):", 1); pdf.cell(45, 8, f"{temp} C", 1)
-    pdf.cell(50, 8, "Humedad Relativa:", 1); pdf.cell(0, 8, f"{hum}%", 1, 1)
-    
-    pdf.set_font("Arial", 'B', 10)
-    pdf.cell(50, 8, "INDICE TERMICO (Est.):", 1); pdf.cell(45, 8, f"{heat_index:.1f} C", 1)
-    pdf.cell(50, 8, "NIVEL DE RIESGO:", 1); pdf.cell(0, 8, f"{riesgo_nom}", 1, 1)
-    pdf.ln(2)
-    
-    pdf.set_font("Arial", 'B', 9)
-    pdf.multi_cell(0, 6, f"REGIMEN SUGERIDO (Carga Media): {regimen}")
-    pdf.set_font("Arial", 'I', 9)
-    pdf.multi_cell(0, 6, f"Accion Inmediata: {accion}")
-    pdf.ln(5)
+    pdf.cell(50, 8, f"Indice Termico: {heat_index:.1f} C", 1); pdf.cell(0, 8, f"Riesgo: {riesgo_nom}", 1, 1)
+    pdf.multi_cell(0, 6, f"Regimen: {regimen}\nAccion: {accion}", 1); pdf.ln(5)
 
-    # 3. CALIDAD DEL AIRE
-    pdf.set_font("Arial", 'B', 10)
-    pdf.set_fill_color(230, 230, 250)
-    pdf.cell(0, 8, f"3. CALIDAD DEL AIRE Y PREVISION", 1, 1, 'L', 1)
+    pdf.set_font("Arial", 'B', 10); pdf.set_fill_color(230, 230, 250)
+    pdf.cell(0, 8, "3. CALIDAD DEL AIRE", 1, 1, 'L', 1)
     pdf.set_font("Arial", '', 10)
-    pdf.cell(50, 8, f"AQI Actual: Nivel {aqi}", 1); pdf.cell(0, 8, f"PM2.5: {comps.get('pm2_5')} ug/m3", 1, 1)
-    pdf.cell(50, 8, "Prediccion IA (1h):", 1); pdf.cell(0, 8, f"{pred:.1f} C (Tendencia calculada por LSTM)", 1, 1)
-    pdf.ln(15)
+    pdf.cell(50, 8, f"AQI: Nivel {aqi}", 1); pdf.cell(0, 8, f"PM2.5: {comps.get('pm2_5')} ug/m3", 1, 1)
+    pdf.cell(0, 8, f"Prediccion IA (1h): {pred:.1f} C", 1, 1); pdf.ln(15)
     
-    # FIRMAS
-    pdf.set_font("Arial", '', 10)
-    pdf.cell(90, 10, "_"*30, 0, 0, 'C')
-    pdf.cell(0, 10, "_"*30, 0, 1, 'C')
-    pdf.cell(90, 5, "Firma Supervisor EHS", 0, 0, 'C')
-    pdf.cell(0, 5, "Firma Gerencia de Planta", 0, 1, 'C')
-    
-    # DISCLAIMER
-    pdf.ln(10)
-    pdf.set_font("Arial", 'I', 7)
-    pdf.multi_cell(0, 4, "NOTA: Este reporte utiliza datos satelitales y modelos de IA. Para cumplimiento legal estricto de NOM-015, se requieren mediciones en sitio con termometro de globo (TGBH). Este documento sirve como guia preventiva.")
-
+    pdf.cell(90, 10, "_"*30, 0, 0, 'C'); pdf.cell(0, 10, "_"*30, 0, 1, 'C')
+    pdf.cell(90, 5, "Firma Supervisor EHS", 0, 0, 'C'); pdf.cell(0, 5, "Firma Gerencia", 0, 1, 'C')
     return pdf.output(dest='S').encode('latin-1')
 
-# --- 5. FUNCIONES BACKEND E IA ---
+# --- 5. FUNCIONES BACKEND ---
 @st.cache_resource
 def load_ai_resources():
     script_dir = os.path.dirname(os.path.abspath(__file__))
@@ -193,8 +163,11 @@ def get_live_data(lat, lon, api_key):
     try:
         w = requests.get(f"https://api.openweathermap.org/data/2.5/weather?lat={lat}&lon={lon}&appid={api_key}&units=metric").json()
         a = requests.get(f"http://api.openweathermap.org/data/2.5/air_pollution?lat={lat}&lon={lon}&appid={api_key}").json()
-        return w['main']['temp'], w['main']['humidity'], a['list'][0]['main']['aqi'], a['list'][0]['components']
-    except: return None, None, None, None
+        # EXTRAEMOS VIENTO TAMBIÉN
+        wind_s = w['wind']['speed']
+        wind_d = w['wind']['deg']
+        return w['main']['temp'], w['main']['humidity'], a['list'][0]['main']['aqi'], a['list'][0]['components'], wind_s, wind_d
+    except: return None, None, None, None, None, None
 
 def predict_temp_advanced(model, scaler, current_data_dict):
     temp = current_data_dict['temp']; pm25 = current_data_dict['comps'].get('pm2_5', 0); co = current_data_dict['comps'].get('co', 0); no2 = current_data_dict['comps'].get('no2', 0); o3 = current_data_dict['comps'].get('o3', 0)
@@ -220,7 +193,7 @@ def load_historical_csv():
         except: pass
     return pd.DataFrame()
 
-# --- 6. PRONÓSTICO CACHÉ ---
+# --- FUNCIONES PRONÓSTICO CACHÉ ---
 def _get_initial_sequence_uncached(scaler):
     LOOK_BACK = 24; FEATURES = ['temperatura', 'pm2_5', 'co', 'no2', 'o3']
     df = load_historical_csv()
@@ -266,12 +239,12 @@ try:
 except: api_key = "7bb94235f544dd5e37b0262258a9cdbc"
 
 with st.sidebar:
-    # CAMBIO DE MARCA EN SIDEBAR
     st.markdown("## 🌍 GlobalAir")
-    st.markdown("### `v9.0 // ENTERPRISE`") 
-    selected_city = st.selectbox("📍 UBICACIÓN OBJETIVO", list(LOCATIONS.keys()), key="city_sel_global")
+    st.markdown("### `v10.0 // SATELLITE`") 
+    selected_city = st.selectbox("📍 UBICACIÓN OBJETIVO", list(LOCATIONS.keys()), key="city_sel_final")
     st.divider()
-    layer_type = st.radio("Modo de Mapa:", ["Táctico (Polígonos)", "Científico (Heatmap)"])
+    # NUEVO CONTROL DE CAPAS CON SATÉLITE
+    map_layer = st.radio("Modo de Visualización:", ["Táctico (Oscuro)", "Satélite (Real)", "Híbrido"])
     st.divider()
     protocol_container = st.empty()
     st.divider()
@@ -286,7 +259,8 @@ with st.sidebar:
 model, scaler = load_ai_resources()
 if selected_city in LOCATIONS: slat, slon = LOCATIONS[selected_city]
 else: slat, slon = LOCATIONS["Monterrey (Centro)"]
-temp, hum, aqi, comps = get_live_data(slat, slon, api_key)
+# AHORA OBTENEMOS VIENTO TAMBIÉN
+temp, hum, aqi, comps, wind_s, wind_d = get_live_data(slat, slon, api_key)
 
 if temp:
     recos, status = get_protocols(temp, aqi)
@@ -308,59 +282,80 @@ with tab1:
 
         with k1: st.markdown(f"""<div class="css-card"><div class="metric-label">TEMP. ACTUAL</div><div class="big-metric" style="color:{temp_col}">{temp:.1f}°C</div></div>""", unsafe_allow_html=True)
         with k2: st.markdown(f"""<div class="css-card"><div class="metric-label">IA PREDICTIVA</div><div class="big-metric" style="color:#00E5FF">{pred:.1f}°C</div></div>""", unsafe_allow_html=True)
-        with k3: st.markdown(f"""<div class="css-card"><div class="metric-label">DESVIACIÓN</div><div class="big-metric">{error:.1f}°C</div></div>""", unsafe_allow_html=True)
+        with k3: st.markdown(f"""<div class="css-card"><div class="metric-label">VIENTO</div><div class="big-metric">{wind_s} m/s</div><div style="color:#888; font-size:12px">Dir: {deg_to_cardinal(wind_d)}</div></div>""", unsafe_allow_html=True)
         with k4: st.markdown(f"""<div class="css-card"><div class="metric-label">CALIDAD AIRE</div><div class="big-metric" style="color:{aqi_col}">{aqi_lbl}</div></div>""", unsafe_allow_html=True)
 
+        # Matrix View
         with st.expander("📋 Ver Resumen de Todas las Plantas (Matrix View)", expanded=False):
             matrix_data = []
             for c_name, c_coords in LOCATIONS.items():
                 if c_name == selected_city:
                     icon = "🔴" if status=="danger" else ("🟡" if status=="warning" else "🟢")
-                    matrix_data.append({"Ubicación": c_name, "Temp": f"{temp}°C", "AQI": f"Nivel {aqi}", "Estado": icon})
+                    matrix_data.append({"Ubicación": c_name, "Temp": f"{temp}°C", "AQI": f"Nivel {aqi}", "Viento": f"{wind_s} m/s {deg_to_cardinal(wind_d)}", "Estado": icon})
                 else:
-                    matrix_data.append({"Ubicación": c_name, "Temp": "---", "AQI": "---", "Estado": "⚪"})
+                    matrix_data.append({"Ubicación": c_name, "Temp": "---", "AQI": "---", "Viento": "---", "Estado": "⚪"})
             st.dataframe(pd.DataFrame(matrix_data), use_container_width=True)
-            st.caption("Nota: Datos limitados para optimización de API.")
 
         st.markdown("---")
         c_pdf1, c_pdf2 = st.columns([3, 1])
         with c_pdf1: st.markdown("#### 📄 Reporte de Cumplimiento"); st.caption(f"Evidencia forense para: **{selected_city}**")
         with c_pdf2:
-            # GENERAR PDF CON NUEVA MARCA
-            pdf_data = create_pdf_download(selected_city, temp, hum, aqi, pred, comps)
+            # PDF CON VIENTO
+            pdf_data = create_pdf_download(selected_city, temp, hum, aqi, pred, comps, wind_s, wind_d)
             st.download_button(label="📥 DESCARGAR PDF", data=pdf_data, file_name=f"Reporte_GlobalAir_{datetime.now().strftime('%Y%m%d')}.pdf", mime="application/pdf", type="primary")
         st.markdown("---")
 
         st.markdown("### 🗺️ RADAR METROPOLITANO")
-        m = folium.Map(location=[25.69, -100.32], zoom_start=11, tiles="CartoDB dark_matter")
-        heat_data = []
+        
+        # SELECCIÓN DE CAPAS DE MAPA
+        if map_layer == "Táctico (Oscuro)":
+            tiles = "CartoDB dark_matter"
+        elif map_layer == "Satélite (Real)":
+            tiles = "https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}"
+        else: # Híbrido
+            tiles = "OpenStreetMap" # O alguna otra capa clara
+            
+        attr = "Esri" if "ArcGIS" in tiles else "OpenStreetMap"
+        m = folium.Map(location=[25.69, -100.32], zoom_start=11, tiles=tiles, attr=attr)
+        
+        # Botón de Pantalla Completa
+        Fullscreen().add_to(m)
+
         for city, coords in LOCATIONS.items():
-            if city == selected_city:
-                ct, caqi = temp, aqi
-            else:
-                ct, caqi = None, None 
+            if city == selected_city: ct, caqi = temp, aqi
+            else: ct, caqi = None, None 
             
             if ct:
-                intensity = caqi * 0.2
-                heat_data.append([coords[0], coords[1], intensity])
-                if layer_type == "Táctico (Polígonos)":
-                    hex_color, _ = get_status_color(ct, caqi)
-                    offset = 0.005
-                    poly = [[coords[0]-offset, coords[1]-offset], [coords[0]+offset, coords[1]-offset], [coords[0]+offset, coords[1]+offset], [coords[0]-offset, coords[1]+offset]]
-                    folium.Polygon(locations=poly, color=hex_color, fill=True, fill_color=hex_color, fill_opacity=0.3, tooltip=f"<b>{city}</b><br>Temp: {ct}°C").add_to(m)
-                    folium.Marker(location=coords, icon=folium.DivIcon(html=f'<div style="color:#EEE;font-size:9pt;text-shadow:0 0 4px #000;font-weight:bold">{city}</div>')).add_to(m)
+                # LÓGICA DE POLÍGONOS + TOOLTIP CON VIENTO
+                hex_color, _ = get_status_color(ct, caqi)
+                offset = 0.008
+                poly = [[coords[0]-offset, coords[1]-offset], [coords[0]+offset, coords[1]-offset], [coords[0]+offset, coords[1]+offset], [coords[0]-offset, coords[1]+offset]]
+                
+                popup_content = f"""
+                <div style="font-family:sans-serif">
+                    <b>{city}</b><hr>
+                    🌡️ Temp: {ct}°C<br>
+                    🌫️ AQI: {caqi}<br>
+                    💨 Viento: {wind_s} m/s ({deg_to_cardinal(wind_d)})
+                </div>
+                """
+                
+                folium.Polygon(locations=poly, color=hex_color, fill=True, fill_color=hex_color, fill_opacity=0.3, popup=folium.Popup(popup_content, max_width=200)).add_to(m)
+                
+                # Icono simple si es satélite para que resalte
+                icon_color = "white" if "ArcGIS" in tiles else "black"
+                folium.Marker(location=coords, icon=folium.DivIcon(html=f'<div style="color:{icon_color};font-size:9pt;text-shadow:0 0 4px #000;font-weight:bold">{city}</div>')).add_to(m)
             else:
-                 folium.Marker(location=coords, icon=folium.DivIcon(html=f'<div style="color:#555;font-size:9pt;">{city}</div>')).add_to(m)
+                 folium.Marker(location=coords, icon=folium.DivIcon(html=f'<div style="color:#777;font-size:9pt;">{city}</div>')).add_to(m)
 
-        if layer_type == "Científico (Heatmap)" and heat_data: HeatMap(heat_data, radius=25, blur=15, gradient={0.2:'blue',0.4:'lime',0.6:'orange',1:'red'}).add_to(m)
-        st_folium(m, width="100%", height=500)
+        st_folium(m, width="100%", height=550)
     
     else:
         st.error("⚠️ Error de Conexión con Sensores")
         st.info("El sistema no pudo recuperar datos en tiempo real.")
-        if not model: st.warning("Diagnóstico: Modelo de IA no cargado.")
-        if not temp: st.warning("Diagnóstico: API OpenWeather no responde (Rate Limit).")
 
+# ... (PESTAÑAS 2 y 3 se mantienen igual que antes) ...
+# PESTAÑA 2: ANALÍTICA
 with tab2:
     st.markdown("### 📊 HISTÓRICO MULTIVARIABLE")
     df = load_historical_csv()
@@ -378,6 +373,7 @@ with tab2:
             st.altair_chart(chart, use_container_width=True)
     else: st.info("Esperando datos del recolector...")
 
+# PESTAÑA 3: PRONÓSTICO
 with tab3:
     st.markdown("### 🔮 Pronóstico Extendido (48 Horas)")
     st.caption(f"Simulación avanzada para: **{selected_city}**")
@@ -390,5 +386,3 @@ with tab3:
         umbral = alt.Chart(pd.DataFrame({'u': [35.0]})).mark_rule(color="#FF3D00", strokeDash=[5,5]).encode(y='u:Q')
         st.altair_chart((linea + umbral).properties(height=400).interactive(), use_container_width=True)
         st.info("Nota: La simulación asume ciclos de tráfico (CO) sinusoidales para mayor realismo.")
-
-
