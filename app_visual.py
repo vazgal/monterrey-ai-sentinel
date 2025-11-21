@@ -89,12 +89,15 @@ def get_nom015_status(heat_index):
     else: return "PELIGRO EXTREMO", "0% Trabajo / 100% Descanso", "SUSPENSION DE ACTIVIDADES."
 
 def get_status_color(temp, aqi):
-    if aqi >= 4: return "#D500F9"  
-    if aqi == 3: return "#FF1744"
-    if aqi == 2: return "#FF9100"
-    if temp >= 38: return "#FF3D00"
-    if temp < 12:  return "#2979FF"
-    return "#00E676"
+    # Debe devolver (COLOR, RADIO)
+    if aqi >= 4: return "#D500F9", 4000  # Púrpura, Grande
+    if aqi == 3: return "#FF1744", 3500  # Rojo, Mediano
+    if aqi == 2: return "#FF9100", 2500  # Naranja
+    
+    if temp >= 38: return "#FF3D00", 3000 # Rojo Fuego
+    if temp < 12:  return "#2979FF", 2500 # Azul Frío
+    
+    return "#00E676", 1500 # Verde, Pequeño
 
 def get_protocols(temp, aqi):
     protocols = []
@@ -358,3 +361,4 @@ with tab4:
                     folium.Marker([slat,slon], icon=folium.Icon(color="red",icon="fire")).add_to(ms)
                     st_folium(ms, width="100%", height=500)
         else: st.info("Listo para simular.")
+
