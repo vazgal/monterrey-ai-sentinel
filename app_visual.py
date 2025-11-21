@@ -341,24 +341,45 @@ with tab3:
         umbral = alt.Chart(pd.DataFrame({'u': [35.0]})).mark_rule(color="#FF3D00", strokeDash=[5,5]).encode(y='u:Q')
         st.altair_chart((linea + umbral).properties(height=400).interactive(), use_container_width=True)
 
-# TAB 4: SIMULADOR FÍSICO
+# TAB 4: SIMULADOR
 with tab4:
     st.markdown("### 🧪 Modelo de Dispersión Gaussiana")
     st.caption(f"Simulación de fuga en: **{selected_city}**")
     c1, c2 = st.columns([1,3])
+    
     with c1:
         st.metric("Viento", f"{wind_s} m/s", deg_to_cardinal(wind_d))
         emission = st.slider("Tasa Emisión (g/s):", 100, 5000, 1000)
-        if st.button("⚠️ SIMULAR"): run_sim = True
-        else: run_sim = False
+        
+        # Botón de acción
+        if st.button("⚠️ SIMULAR"): 
+            run_sim = True
+        else: 
+            run_sim = False
+            
     with c2:
+        # LÓGICA DE DIAGNÓSTICO MEJORADA
         if run_sim:
-            with st.spinner("Calculando..."):
-                hm_data = fisica_ambiental.generar_pluma_toxica(slat, slon, wind_s, wind_d, emission)
-                if hm_data:
-                    ms = folium.Map(location=[slat, slon], zoom_start=14, tiles="CartoDB dark_matter")
-                    HeatMap(hm_data, radius=20, blur=15, gradient={0.2:'blue', 0.8:'red'}).add_to(ms)
-                    folium.Marker([slat,slon], icon=folium.Icon(color="red",icon="fire")).add_to(ms)
-                    st_folium(ms, width="100%", height=500)
-        else: st.info("Listo para simular.")
+            if not fisica_ambiental:
+                st.error("❌ ERROR CRÍTICO: Falta el módulo 'fisica_ambiental.py'")
+                st.warning("Asegúrate de que el archivo fisica_ambiental.py esté en la misma carpeta y subido a GitHub.")
+            else:
+                with st.spinner("Calculando..."):
+                    try:
+                        hm_data = fisica_ambiental.generar_pluma_toxica(slat, slon, wind_s, wind_d, emission)
+                        if hm_data:
+                            ms = folium.Map(location=[slat, slon], zoom_start=14, tiles="CartoDB dark_matter")
+                            HeatMap(hm_data, radius=20, blur=15, gradient={0.2:'blue', 0.8:'red'}).add_to(ms)
+                            folium.Marker([slat,slon], icon=folium.Icon(color="red",icon="fire")).add_to(ms)
+                            st_folium(ms, width="100%", height=500)
+                        else:
+                            st.warning("La simulación no generó datos (posiblemente viento 0 o error matemático).")
+                    except Exception as e:
+                        st.error(f"Error al ejecutar simulación: {e}")
+        else:
+            # Estado de espera
+            if not fisica_ambiental:
+                st.warning("⚠️ Advertencia: El motor de física no está cargado. La simulación fallará.")
+            else:
+                st.info("Sistema listo. Presiona SIMULAR para proyectar la pluma tóxica.")
 
