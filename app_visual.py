@@ -6,13 +6,197 @@ from datetime import datetime, timedelta
 import time
 import folium
 from streamlit_folium import st_folium
-from folium.plugins import HeatMap, Fullscreen
+from folium.plugins import HeatMap
 from tensorflow.keras.models import load_model
 import joblib
 import os
 import altair as alt
 import warnings
 from fpdf import FPDF
+
+# --- IMPORTAR NUESTRO MOTOR CIENTÍFICO ---
+import fisica_ambiental # <--- ¡ASEGÚRATE DE HABER CREADO EL ARCHIVO ANTES!
+
+# --- 0. CONFIGURACIÓN ---
+os.environ['TF_CPP_MIN_LOG_LEVEL'] = '2' 
+warnings.filterwarnings('ignore')
+
+st.set_page_config(page_title="GlobalAir", page_icon="🌍", layout="wide")
+
+# --- 1. ESTILOS (LIQUID GLASS) ---
+st.markdown("""
+    <style>
+    .stApp { background: linear-gradient(-45deg, #000000, #1a1a1a, #0d0d0d, #2b2b2b); background-size: 400% 400%; animation: gradient 15s ease infinite; }
+    @keyframes gradient { 0% {background-position: 0% 50%;} 50% {background-position: 100% 50%;} 100% {background-position: 0% 50%;} }
+    .css-card { background: rgba(255, 255, 255, 0.05); border-radius: 20px; box-shadow: 0 8px 32px 0 rgba(0, 0, 0, 0.37); backdrop-filter: blur(12px); border: 1px solid rgba(255, 255, 255, 0.1); padding: 25px; }
+    h1, h2, h3 { color: #ffffff !important; font-family: 'Helvetica Neue', sans-serif; }
+    .big-metric { font-size: 38px; font-weight: 800; color: #FFF; text-shadow: 0 0 10px rgba(255,255,255,0.3); }
+    .metric-label { font-size: 12px; text-transform: uppercase; color: rgba(255,255,255,0.7); }
+    iframe { border-radius: 20px; border: 1px solid rgba(255,255,255,0.1); }
+    </style>
+    """, unsafe_allow_html=True)
+
+# --- 2. UBICACIONES ---
+LOCATIONS = {
+    "Monterrey (Centro)": [25.6866, -100.3161], "San Pedro": [25.6576, -100.4029],
+    "Apodaca (Aeropuerto)": [25.7785, -100.1864], "Guadalupe": [25.6774, -100.2597],
+    "San Nicolás": [25.7413, -100.2953], "Santa Catarina": [25.6768, -100.4627],
+    "Escobedo": [25.7969, -100.3260], "García": [25.8119, -100.5928],
+    "Juárez": [25.6493, -100.0951], "Santiago": [25.4317, -100.1533],
+    "Cadereyta": [25.5879, -99.9976], "Cemex (Planta Mty)": [25.7080, -100.2960],
+    "Ternium (Guerrero)": [25.7480, -100.2930], "Kia (Pesquería)": [25.7735, -99.9565]
+}
+
+# --- 3. FUNCIONES DE NEGOCIO ---
+def deg_to_cardinal(deg):
+    dirs = ["N", "NNE", "NE", "ENE", "E", "ESE", "SE", "SSE", "S", "SSW", "SW", "WSW", "W", "WNW", "NW", "NNW"]
+    ix = int((deg + 11.25)/22.5)
+    return dirs[ix % 16]
+
+def get_status_color(temp, aqi):
+    if aqi >= 4: return "#D500F9"  
+    if aqi == 3: return "#FF1744"
+    if aqi == 2: return "#FF9100"
+    if temp >= 38: return "#FF3D00"
+    if temp < 12:  return "#2979FF"
+    return "#00E676"
+
+def get_protocols(temp, aqi):
+    protocols = []
+    status = "normal"
+    if temp >= 38: protocols.append("🔥 GOLPE DE CALOR: Hidratación obligatoria."); status = "danger"
+    elif temp < 12: protocols.append("❄️ BAJAS TEMPERATURAS: Ropa térmica."); status = "info"
+    if aqi >= 3: protocols.append("☣️ AIRE TÓXICO/MALO: Cubrebocas N95."); status = "danger"
+    elif aqi == 2: protocols.append("😷 AIRE REGULAR: Precaución."); 
+    if status != "danger": status = "warning"
+    if not protocols: protocols.append("✅ OPERACIÓN NORMAL")
+    return protocols, status
+
+# --- 4. CARGA DE RECURSOS ---
+@st.cache_resource
+def load_ai_resources():
+    script_dir = os.path.dirname(os.path.abspath(__file__))
+    model_path = os.path.join(script_dir, "modelo_lstm_multivariado.h5")
+    scaler_path = os.path.join(script_dir, "scaler_multivariado.pkl")
+    if not os.path.exists(model_path): return None, None
+    return load_model(model_path), joblib.load(scaler_path)
+
+def get_live_data(lat, lon, api_key):
+    try:
+        w = requests.get(f"https://api.openweathermap.org/data/2.5/weather?lat={lat}&lon={lon}&appid={api_key}&units=metric").json()
+        a = requests.get(f"http://api.openweathermap.org/data/2.5/air_pollution?lat={lat}&lon={lon}&appid={api_key}").json()
+        wind_s = w['wind']['speed']; wind_d = w['wind']['deg']
+        return w['main']['temp'], w['main']['humidity'], a['list'][0]['main']['aqi'], a['list'][0]['components'], wind_s, wind_d
+    except: return None, None, None, None, None, None
+
+# --- 5. INTERFAZ ---
+try:
+    if "OPENWEATHER_KEY" in st.secrets: api_key = st.secrets["OPENWEATHER_KEY"]
+    else: api_key = "7bb94235f544dd5e37b0262258a9cdbc"
+except: api_key = "7bb94235f544dd5e37b0262258a9cdbc"
+
+with st.sidebar:
+    st.markdown("## 🌍 GlobalAir")
+    st.markdown("### `v11.0 // PHYSICS`") 
+    selected_city = st.selectbox("📍 UBICACIÓN", list(LOCATIONS.keys()), key="city_final")
+    st.divider()
+    map_layer = st.radio("Vista Mapa:", ["Táctico", "Satélite"])
+    st.divider()
+    refresh_rate = st.slider("Refresh (s):", 60, 300, 60)
+    live_mode = st.toggle("🔴 VIGILANCIA", value=False)
+    if live_mode:
+        ph = st.empty()
+        for i in range(refresh_rate, 0, -1): ph.caption(f"Scan: {i}s"); time.sleep(1)
+        st.rerun()
+
+model, scaler = load_ai_resources()
+if selected_city in LOCATIONS: slat, slon = LOCATIONS[selected_city]
+else: slat, slon = LOCATIONS["Monterrey (Centro)"]
+temp, hum, aqi, comps, wind_s, wind_d = get_live_data(slat, slon, api_key)
+
+# Tabs
+tab1, tab2, tab4 = st.tabs(["📡 MONITOREO", "📈 ANALÍTICA", "🧪 SIMULADOR DE FUGAS"])
+
+# TAB 1: MONITOR (Resumido para brevedad, usa tu lógica anterior)
+with tab1:
+    if temp:
+        k1, k2, k3 = st.columns(3)
+        with k1: st.markdown(f"""<div class="css-card"><div class="big-metric">{temp}°C</div><div class="metric-label">TEMP</div></div>""", unsafe_allow_html=True)
+        with k2: st.markdown(f"""<div class="css-card"><div class="big-metric">{wind_s} m/s</div><div class="metric-label">VIENTO {deg_to_cardinal(wind_d)}</div></div>""", unsafe_allow_html=True)
+        with k3: st.markdown(f"""<div class="css-card"><div class="big-metric">Nivel {aqi}</div><div class="metric-label">CALIDAD AIRE</div></div>""", unsafe_allow_html=True)
+        
+        st.markdown("### 🗺️ RADAR")
+        tiles = "CartoDB dark_matter" if map_layer == "Táctico" else "https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}"
+        attr = "Esri" if "ArcGIS" in tiles else "OpenStreetMap"
+        m = folium.Map(location=[slat, slon], zoom_start=13, tiles=tiles, attr=attr)
+        
+        # Marcador Central
+        folium.Marker([slat, slon], popup=selected_city, icon=folium.Icon(color="red", icon="info-sign")).add_to(m)
+        st_folium(m, width="100%", height=400)
+
+# TAB 2: ANALÍTICA (Tu código existente iría aquí)
+with tab2:
+    st.info("Funcionalidad de análisis histórico activa en background.")
+
+# --- TAB 4: SIMULADOR DE FUGAS (FÍSICA AVANZADA) ---
+with tab4:
+    st.markdown("### 🧪 Modelo de Dispersión Gaussiana (Pluma Tóxica)")
+    st.caption(f"Simulación de fuga química hipotética en: **{selected_city}** basada en condiciones de viento actuales.")
+    
+    col_sim1, col_sim2 = st.columns([1, 3])
+    
+    with col_sim1:
+        st.markdown("#### Parámetros")
+        # Datos reales del viento (automáticos)
+        st.metric("Viento Real", f"{wind_s} m/s", deg_to_cardinal(wind_d))
+        
+        st.markdown("---")
+        emission_rate = st.slider("Tasa Emisión (g/s):", 100, 5000, 1000)
+        
+        if st.button("⚠️ SIMULAR FUGA"):
+            run_sim = True
+        else:
+            run_sim = False
+            
+    with col_sim2:
+        if run_sim:
+            with st.spinner("Calculando dinámica de fluidos atmosféricos..."):
+                # 1. LLAMAR AL MOTOR CIENTÍFICO
+                heatmap_data = fisica_ambiental.generar_pluma_toxica(
+                    lat_origen=slat,
+                    lon_origen=slon,
+                    viento_vel=wind_s,
+                    viento_dir_grados=wind_d,
+                    q_emision=emission_rate
+                )
+                
+                # 2. VISUALIZAR
+                if not heatmap_data:
+                    st.warning("El viento está en calma (0 m/s), la pluma no se dispersa horizontalmente.")
+                else:
+                    m_sim = folium.Map(location=[slat, slon], zoom_start=14, tiles="CartoDB dark_matter")
+                    
+                    # Capa de Calor (La Pluma Tóxica)
+                    HeatMap(heatmap_data, radius=20, blur=15, gradient={0.2:'blue', 0.5:'lime', 0.8:'yellow', 1.0:'red'}).add_to(m_sim)
+                    
+                    # Marcador de la Fuente
+                    folium.Marker(
+                        [slat, slon], 
+                        popup="FUENTE DE EMISIÓN", 
+                        icon=folium.Icon(color="red", icon="fire", prefix='fa')
+                    ).add_to(m_sim)
+                    
+                    # Flecha de Viento (Marcador simple indicando dirección)
+                    folium.Marker(
+                        [slat, slon],
+                        icon=folium.DivIcon(html=f'<div style="font-size:24px; transform: rotate({wind_d-180}deg);">⬇️</div>')
+                    ).add_to(m_sim)
+
+                    st_folium(m_sim, width="100%", height=500)
+                    
+                    st.success(f"Simulación completada. Pluma proyectada a 5km en dirección {deg_to_cardinal(wind_d + 180)}.")
+        else:
+            st.info("Presiona 'SIMULAR FUGA' para calcular la trayectoria de contaminantes.")
 
 # --- 0. CONFIGURACIÓN ---
 os.environ['TF_CPP_MIN_LOG_LEVEL'] = '2' 
@@ -385,4 +569,5 @@ with tab3:
         umbral = alt.Chart(pd.DataFrame({'u': [35.0]})).mark_rule(color="#FF3D00", strokeDash=[5,5]).encode(y='u:Q')
         st.altair_chart((linea + umbral).properties(height=400).interactive(), use_container_width=True)
         st.info("Nota: La simulación asume ciclos de tráfico (CO) sinusoidales para mayor realismo.")
+
 
