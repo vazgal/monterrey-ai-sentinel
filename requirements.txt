@@ -4,8 +4,9 @@ numpy
 requests
 folium
 streamlit-folium
-tensorflow
+tensorflow-cpu
 joblib
 scikit-learn
 fpdf
 altair
+
