@@ -54,13 +54,20 @@ st.markdown("""
 
 # --- 2. UBICACIONES ---
 LOCATIONS = {
-    "Monterrey (Centro)": [25.6866, -100.3161], "San Pedro": [25.6576, -100.4029],
-    "Apodaca (Aeropuerto)": [25.7785, -100.1864], "Guadalupe": [25.6774, -100.2597],
-    "San Nicolás": [25.7413, -100.2953], "Santa Catarina": [25.6768, -100.4627],
-    "Escobedo": [25.7969, -100.3260], "García": [25.8119, -100.5928],
-    "Juárez": [25.6493, -100.0951], "Santiago": [25.4317, -100.1533],
-    "Cadereyta": [25.5879, -99.9976], "Cemex (Planta Mty)": [25.7080, -100.2960],
-    "Ternium (Guerrero)": [25.7480, -100.2930], "Kia (Pesquería)":    [25.7735, -99.9565]
+    "Monterrey (Centro)": [25.6866, -100.3161],
+    "San Pedro": [25.6576, -100.4029],
+    "Apodaca (Aeropuerto)": [25.7785, -100.1864],
+    "Guadalupe": [25.6774, -100.2597],
+    "San Nicolás": [25.7413, -100.2953],
+    "Santa Catarina": [25.6768, -100.4627],
+    "Escobedo": [25.7969, -100.3260],
+    "García": [25.8119, -100.5928],
+    "Juárez": [25.6493, -100.0951],
+    "Santiago": [25.4317, -100.1533],
+    "Cadereyta": [25.5879, -99.9976],
+    "Cemex (Planta Mty)": [25.7080, -100.2960],
+    "Ternium (Guerrero)": [25.7480, -100.2930],
+    "Kia (Pesquería)":    [25.7735, -99.9565]
 }
 
 # --- 3. LÓGICA DE NEGOCIO ---
@@ -94,11 +101,18 @@ def get_status_color(temp, aqi):
 def get_protocols(temp, aqi):
     protocols = []
     status = "normal"
-    if temp >= 38: protocols.append("🔥 GOLPE DE CALOR: Hidratación obligatoria."); status = "danger"
-    elif temp < 12: protocols.append("❄️ BAJAS TEMPERATURAS: Ropa térmica."); status = "info"
-    if aqi >= 3: protocols.append("☣️ AIRE TÓXICO/MALO: Cubrebocas N95."); status = "danger"
-    elif aqi == 2: protocols.append("😷 AIRE REGULAR: Precaución."); 
-    if status != "danger": status = "warning"
+    if temp >= 38:
+        protocols.append("🔥 GOLPE DE CALOR: Hidratación obligatoria.")
+        status = "danger"
+    elif temp < 12:
+        protocols.append("❄️ BAJAS TEMPERATURAS: Ropa térmica.")
+        status = "info"
+    if aqi >= 3:
+        protocols.append("☣️ AIRE TÓXICO/MALO: Cubrebocas N95.")
+        status = "danger"
+    elif aqi == 2:
+        protocols.append("😷 AIRE REGULAR: Precaución.")
+        if status != "danger": status = "warning"
     if not protocols: protocols.append("✅ OPERACIÓN NORMAL")
     return protocols, status
 
@@ -109,7 +123,8 @@ class PDFReport(FPDF):
         self.cell(0, 10, 'GlobalAir - REPORTE DE CUMPLIMIENTO AMBIENTAL', 0, 1, 'C')
         self.ln(5)
     def footer(self):
-        self.set_y(-15); self.set_font('Arial', 'I', 8)
+        self.set_y(-15)
+        self.set_font('Arial', 'I', 8)
         self.cell(0, 10, f'Pagina {self.page_no()} - Generado por GlobalAir System v1.0', 0, 0, 'C')
 
 def create_pdf_download(city, temp, hum, aqi, pred, comps, wind_s, wind_d):
@@ -142,7 +157,7 @@ def create_pdf_download(city, temp, hum, aqi, pred, comps, wind_s, wind_d):
     pdf.cell(90, 5, "Firma Supervisor EHS", 0, 0, 'C'); pdf.cell(0, 5, "Firma Gerencia", 0, 1, 'C')
     return pdf.output(dest='S').encode('latin-1')
 
-# --- 5. CARGA DE RECURSOS ---
+# --- 5. FUNCIONES BACKEND ---
 @st.cache_resource
 def load_ai_resources():
     script_dir = os.path.dirname(os.path.abspath(__file__))
@@ -160,14 +175,20 @@ def get_live_data(lat, lon, api_key):
     except: return None, None, None, None, None, None
 
 def predict_temp_advanced(model, scaler, current_data_dict):
-    temp = current_data_dict['temp']; pm25 = current_data_dict['comps'].get('pm2_5', 0); co = current_data_dict['comps'].get('co', 0); no2 = current_data_dict['comps'].get('no2', 0); o3 = current_data_dict['comps'].get('o3', 0)
+    temp = current_data_dict['temp']
+    pm25 = current_data_dict['comps'].get('pm2_5', 0)
+    co = current_data_dict['comps'].get('co', 0)
+    no2 = current_data_dict['comps'].get('no2', 0)
+    o3 = current_data_dict['comps'].get('o3', 0)
+    
     current_vector = np.array([[temp, pm25, co, no2, o3]])
     input_sequence = np.repeat(current_vector, 24, axis=0) 
     input_sequence = input_sequence + np.random.normal(0, 0.1, input_sequence.shape)
     input_scaled = scaler.transform(input_sequence)
     input_reshaped = input_scaled.reshape(1, 24, 5)
     pred_scaled = model.predict(input_reshaped)
-    dummy_row = np.zeros((1, 5)); dummy_row[0, 0] = pred_scaled
+    dummy_row = np.zeros((1, 5))
+    dummy_row[0, 0] = pred_scaled
     pred_final = scaler.inverse_transform(dummy_row)[0][0]
     return pred_final
 
@@ -176,14 +197,15 @@ def load_historical_csv():
     csv_path = os.path.join(script_dir, "historial_clima.csv")
     if os.path.exists(csv_path):
         try:
-            df = pd.read_csv(csv_path); df['timestamp'] = pd.to_datetime(df['timestamp'])
+            df = pd.read_csv(csv_path)
+            df['timestamp'] = pd.to_datetime(df['timestamp'])
             for c in ['temperatura', 'pm2_5', 'co', 'no2', 'o3']:
                 if c in df.columns: df[c] = pd.to_numeric(df[c], errors='coerce')
             return df
         except: pass
     return pd.DataFrame()
 
-# --- 6. FUNCIONES PRONÓSTICO CACHÉ ---
+# --- 6. PRONÓSTICO CACHÉ ---
 def _get_initial_sequence_uncached(scaler):
     LOOK_BACK = 24; FEATURES = ['temperatura', 'pm2_5', 'co', 'no2', 'o3']
     df = load_historical_csv()
@@ -230,14 +252,14 @@ except: api_key = "7bb94235f544dd5e37b0262258a9cdbc"
 
 with st.sidebar:
     st.markdown("## 🌍 GlobalAir")
-    st.markdown("### `v13.0 // FULL`") 
+    st.markdown("### `v13.1 // FINAL`") 
     selected_city = st.selectbox("📍 UBICACIÓN OBJETIVO", list(LOCATIONS.keys()), key="city_sel_final_v13")
     st.divider()
-    map_layer = st.radio("Vista Mapa:", ["Táctico (Polígonos)", "Satélite (Real)"])
+    layer_type = st.radio("Modo de Mapa:", ["Táctico (Polígonos)", "Científico (Heatmap)"])
     st.divider()
     protocol_container = st.empty()
     st.divider()
-    refresh_rate = st.slider("Refresh (s):", 60, 300, 60)
+    refresh_rate = st.slider("Refresh (s):", 60, 300, 60, key="ref_slider")
     live_mode = st.toggle("🔴 MODO VIGILANCIA", value=False)
     if live_mode:
         ph = st.empty()
@@ -292,26 +314,27 @@ with tab1:
         st.markdown("---")
 
         st.markdown("### 🗺️ RADAR METROPOLITANO")
-        tiles = "CartoDB dark_matter" if map_layer == "Táctico (Polígonos)" else "https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}"
-        attr = "Esri" if "ArcGIS" in tiles else "OpenStreetMap"
-        m = folium.Map(location=[25.69, -100.32], zoom_start=11, tiles=tiles, attr=attr)
+        m = folium.Map(location=[25.69, -100.32], zoom_start=11, tiles="CartoDB dark_matter")
+        Fullscreen().add_to(m)
         heat_data = []
+        
         for city, coords in LOCATIONS.items():
             if city == selected_city: ct, caqi = temp, aqi
             else: ct, caqi = None, None 
             if ct:
                 intensity = caqi * 0.2
                 heat_data.append([coords[0], coords[1], intensity])
-                if map_layer == "Táctico (Polígonos)":
+                if layer_type == "Táctico (Polígonos)":
                     hex_color, _ = get_status_color(ct, caqi)
                     offset = 0.008
                     poly = [[coords[0]-offset, coords[1]-offset], [coords[0]+offset, coords[1]-offset], [coords[0]+offset, coords[1]+offset], [coords[0]-offset, coords[1]+offset]]
-                    folium.Polygon(locations=poly, color=hex_color, fill=True, fill_color=hex_color, fill_opacity=0.3, tooltip=f"<b>{city}</b><br>Temp: {ct}°C").add_to(m)
-                    icon_color = "white" if "ArcGIS" in tiles else "black"
-                    folium.Marker(location=coords, icon=folium.DivIcon(html=f'<div style="color:{icon_color};font-size:9pt;text-shadow:0 0 4px #000;font-weight:bold">{city}</div>')).add_to(m)
+                    popup_c = f"""<div style="font-family:sans-serif"><b>{city}</b><br>Temp: {ct}<br>AQI: {caqi}</div>"""
+                    folium.Polygon(locations=poly, color=hex_color, fill=True, fill_color=hex_color, fill_opacity=0.3, popup=folium.Popup(popup_c, max_width=200)).add_to(m)
+                    folium.Marker(location=coords, icon=folium.DivIcon(html=f'<div style="color:white;font-size:9pt;text-shadow:0 0 4px #000;font-weight:bold">{city}</div>')).add_to(m)
             else:
-                 folium.Marker(location=coords, icon=folium.DivIcon(html=f'<div style="color:#777;font-size:9pt;">{city}</div>')).add_to(m)
-        Fullscreen().add_to(m)
+                 folium.Marker(location=coords, icon=folium.DivIcon(html=f'<div style="color:#555;font-size:9pt;">{city}</div>')).add_to(m)
+
+        if layer_type == "Científico (Heatmap)" and heat_data: HeatMap(heat_data, radius=25, blur=15, gradient={0.2:'blue',0.4:'lime',0.6:'orange',1:'red'}).add_to(m)
         st_folium(m, width="100%", height=550)
     else:
         st.error("⚠️ Error de Conexión con Sensores")
@@ -367,30 +390,22 @@ with tab4:
                     st_folium(ms, width="100%", height=500)
         else: st.info("Listo para simular.")
 
-# TAB 5: LAZARO (HARDWARE MONITOR)
+# TAB 5: LAZARO
 with tab5:
     st.markdown("### 🍃 SISTEMA DE PURIFICACIÓN 'LAZARO'")
-    st.caption("Monitor de rendimiento de hardware.")
     df = load_historical_csv()
     if not df.empty:
         FLOW_RATE_M3_H = 16560; POWER_KW = 1.0
         total_hours = len(df); total_m3_purified = total_hours * FLOW_RATE_M3_H; total_energy_kwh = total_hours * POWER_KW
-        start_date = df['timestamp'].min(); end_date = df['timestamp'].max(); duration = end_date - start_date; days_active = duration.days if duration.days > 0 else 1
+        days_active = (df['timestamp'].max() - df['timestamp'].min()).days or 1
+        
         lc1, lc2, lc3 = st.columns(3)
-        with lc1: st.markdown(f"""<div class="css-card" style="border-left: 5px solid #00E676;"><div class="metric-label">VOLUMEN PURIFICADO</div><div class="big-metric lazaro-stat">{total_m3_purified:,.0f} m³</div></div>""", unsafe_allow_html=True)
-        with lc2: st.markdown(f"""<div class="css-card" style="border-left: 5px solid #2979FF;"><div class="metric-label">TIEMPO OPERATIVO</div><div class="big-metric">{total_hours} HORAS</div></div>""", unsafe_allow_html=True)
-        with lc3: st.markdown(f"""<div class="css-card" style="border-left: 5px solid #FFC107;"><div class="metric-label">CONSUMO ENERGÉTICO</div><div class="big-metric">{total_energy_kwh:,.1f} kWh</div></div>""", unsafe_allow_html=True)
+        with lc1: st.markdown(f"""<div class="css-card" style="border-left:5px solid #00E676;"><div class="metric-label">VOLUMEN PURIFICADO</div><div class="big-metric lazaro-stat">{total_m3_purified:,.0f} m³</div></div>""", unsafe_allow_html=True)
+        with lc2: st.markdown(f"""<div class="css-card" style="border-left:5px solid #2979FF;"><div class="metric-label">TIEMPO OPERATIVO</div><div class="big-metric">{total_hours} HORAS</div></div>""", unsafe_allow_html=True)
+        with lc3: st.markdown(f"""<div class="css-card" style="border-left:5px solid #FFC107;"><div class="metric-label">CONSUMO</div><div class="big-metric">{total_energy_kwh:,.1f} kWh</div></div>""", unsafe_allow_html=True)
+        
         st.divider()
-        c_chart1, c_chart2 = st.columns([2, 1])
-        with c_chart1:
-            df['m3_acumulado'] = range(1, len(df) + 1); df['m3_acumulado'] = df['m3_acumulado'] * FLOW_RATE_M3_H
-            chart_lazaro = alt.Chart(df).mark_area(line={'color':'#00E676'}, color=alt.Gradient(gradient='linear', stops=[alt.GradientStop(color='#00E676', offset=1), alt.GradientStop(color='rgba(0,230,118,0)', offset=0)], x1=1, x2=1, y1=1, y2=0)).encode(x=alt.X('timestamp:T', title="Tiempo"), y=alt.Y('m3_acumulado:Q', title="m³ Procesados"), tooltip=['timestamp', alt.Tooltip('m3_acumulado', format=',.0f')]).properties(height=300).interactive()
-            st.altair_chart(chart_lazaro, use_container_width=True)
-        with c_chart2: st.info(f"**Modelo:** Filtro Físico Industrial v1\n- **Flujo:** 4.60 m³/s\n- **Capacidad:** {FLOW_RATE_M3_H:,.0f} m³/h\n- **Potencia:** {POWER_KW} kW\n- **Estado:** 🟢 OPERATIVO")
+        df['m3'] = range(1, len(df)+1); df['m3'] = df['m3'] * FLOW_RATE_M3_H
+        ch = alt.Chart(df).mark_area(line={'color':'#00E676'}, color=alt.Gradient(gradient='linear', stops=[alt.GradientStop(color='#00E676',offset=1), alt.GradientStop(color='rgba(0,230,118,0)',offset=0)])).encode(x='timestamp:T', y='m3:Q').properties(height=300)
+        st.altair_chart(ch, use_container_width=True)
     else: st.info("Esperando datos...")
-            
-            st.altair_chart(final_chart, use_container_width=True)
-            
-            st.info("Esta predicción es generada por la IA autoregresiva. Asume que los niveles de contaminación se mantendrán estables.")
-    else:
-        st.error("No se pudo cargar el modelo de IA. El pronóstico no está disponible.")
